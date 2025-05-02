@@ -59,10 +59,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     # Create access token
     access_token = create_access_token(data={"sub": user["email"]})
 
+    # Convert MongoDB _id to string id for Pydantic model
+    user_dict = {**user, "id": str(user["_id"])}
+    del user_dict["_id"]  # Remove the _id field
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(**user)
+        "user": UserResponse(**user_dict)
     }
 
 
@@ -94,4 +98,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise credentials_exception
 
-    return UserResponse(**user)
+    # Convert MongoDB _id to string id for Pydantic model
+    user_dict = {**user, "id": str(user["_id"])}
+    del user_dict["_id"]  # Remove the _id field
+
+    return UserResponse(**user_dict)

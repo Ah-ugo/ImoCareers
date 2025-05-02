@@ -21,7 +21,7 @@ app = FastAPI(title="Imo Career Hub API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Add your frontend URL
+    allow_origins=["*"],  # Add your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +82,3 @@ app.include_router(jobs.router, prefix="/jobs", tags=["Jobs"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

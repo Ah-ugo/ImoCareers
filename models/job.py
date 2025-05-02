@@ -19,7 +19,7 @@ class JobUpdate(JobBase):
     pass
 
 class Job(JobBase):
-    id: str = Field(..., alias="_id")
+    id: str
     created_at: datetime
     updated_at: datetime
     is_active: bool = True
@@ -28,7 +28,15 @@ class Job(JobBase):
     class Config:
         populate_by_name = True
 
+class JobInDB(JobBase):
+    _id: str
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool = True
+    applications_count: int = 0
+
 class Application(BaseModel):
+    id: Optional[str] = None
     job_id: str
     user_id: str
     cover_letter: str
@@ -39,3 +47,6 @@ class Application(BaseModel):
 
     class Config:
         populate_by_name = True
+
+class ApplicationInDB(Application):
+    _id: Optional[str] = None
