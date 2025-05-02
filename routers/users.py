@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from models.user import UserUpdate, UserResponse, CV
 from models.job import Application, Job
@@ -6,6 +8,10 @@ import cloudinary.uploader
 from datetime import datetime
 from bson import ObjectId
 from database import get_user_collection, get_job_collection, get_application_collection
+from utils.ai import ai_helper
+
+# from datetime import datetime
+# import json
 
 router = APIRouter()
 
@@ -65,6 +71,61 @@ async def update_cv(
     return {"message": "CV updated successfully"}
 
 
+# @router.post("/me/upload-cv")
+# async def upload_cv(
+#         file: UploadFile = File(...),
+#         current_user: UserResponse = Depends(get_current_user)
+# ):
+#     users_collection = await get_user_collection()
+#
+#     if not file.filename.endswith('.pdf'):
+#         raise HTTPException(
+#             status_code=status.HTTP_400_BAD_REQUEST,
+#             detail="File must be a PDF"
+#         )
+#
+#     try:
+#         result = cloudinary.uploader.upload(
+#             file.file,
+#             folder="cvs",
+#             resource_type="raw"
+#         )
+#
+#         # Update user's CV URL
+#         # First check if cv field exists
+#         user_doc = await users_collection.find_one({"_id": ObjectId(current_user.id)})
+#
+#         if "cv" in user_doc:
+#             # CV field exists, update the cv_url
+#             update_result = await users_collection.update_one(
+#                 {"_id": ObjectId(current_user.id)},
+#                 {
+#                     "$set": {
+#                         "cv.cv_url": result["secure_url"],
+#                         "updated_at": datetime.utcnow()
+#                     }
+#                 }
+#             )
+#         else:
+#             # CV field doesn't exist, create it with cv_url
+#             update_result = await users_collection.update_one(
+#                 {"_id": ObjectId(current_user.id)},
+#                 {
+#                     "$set": {
+#                         "cv": {"cv_url": result["secure_url"]},
+#                         "updated_at": datetime.utcnow()
+#                     }
+#                 }
+#             )
+#
+#         return {"url": result["secure_url"]}
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=str(e)
+#         )
+
+
 @router.post("/me/upload-cv")
 async def upload_cv(
         file: UploadFile = File(...),
@@ -73,52 +134,88 @@ async def upload_cv(
     users_collection = await get_user_collection()
 
     if not file.filename.endswith('.pdf'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be a PDF"
-        )
+        raise HTTPException(400, "Only PDF files are allowed")
 
     try:
+        # Upload to Cloudinary
         result = cloudinary.uploader.upload(
             file.file,
-            folder="cvs",
+            folder="user_cvs",
             resource_type="raw"
         )
 
-        # Update user's CV URL
-        # First check if cv field exists
-        user_doc = await users_collection.find_one({"_id": ObjectId(current_user.id)})
-
-        if "cv" in user_doc:
-            # CV field exists, update the cv_url
-            update_result = await users_collection.update_one(
-                {"_id": ObjectId(current_user.id)},
-                {
-                    "$set": {
-                        "cv.cv_url": result["secure_url"],
-                        "updated_at": datetime.utcnow()
-                    }
-                }
-            )
-        else:
-            # CV field doesn't exist, create it with cv_url
-            update_result = await users_collection.update_one(
-                {"_id": ObjectId(current_user.id)},
-                {
-                    "$set": {
-                        "cv": {"cv_url": result["secure_url"]},
-                        "updated_at": datetime.utcnow()
-                    }
-                }
-            )
-
-        return {"url": result["secure_url"]}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+        # Update cv_url directly
+        await users_collection.update_one(
+            {"_id": ObjectId(current_user.id)},
+            {"$set": {
+                "cv.cv_url": result["secure_url"],
+                "cv.updated_at": datetime.utcnow()
+            }}
         )
 
+        return {"cv_url": result["secure_url"]}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
+
+
+
+
+
+def convert_dates(obj):
+    """Recursively convert datetime objects to ISO strings"""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: convert_dates(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_dates(item) for item in obj]
+    return obj
+
+
+
+
+
+@router.post("/me/generate-cv")
+async def generate_ai_cv(
+        current_user: UserResponse = Depends(get_current_user)
+):
+    users_collection = await get_user_collection()
+
+    # Get user data
+    user = await users_collection.find_one({"_id": ObjectId(current_user.id)})
+    cv_data = user.get("cv", {})
+
+    # Validate required fields
+    if not cv_data.get('skills') or not cv_data.get('experience'):
+        raise HTTPException(400, "Complete skills and experience first")
+
+    try:
+        # Generate PDF bytes
+        pdf_bytes = ai_helper.generate_cv_pdf({
+            'name': user['name'],
+            'email': user['email']
+        }, cv_data)
+
+        # Upload to Cloudinary with explicit public access
+        result = cloudinary.uploader.upload(
+            pdf_bytes,
+            folder="generated_cvs",
+            resource_type="raw",
+        )
+
+        # Update user record
+        await users_collection.update_one(
+            {"_id": ObjectId(current_user.id)},
+            {"$set": {
+                "cv.cv_url": result["secure_url"],
+                "cv.updated_at": datetime.utcnow()
+            }}
+        )
+
+        return {"cv_url": result["secure_url"]}
+
+    except Exception as e:
+        raise HTTPException(500, detail=f"CV generation failed: {str(e)}")
 
 @router.get("/me/applications")
 async def get_my_applications(current_user: UserResponse = Depends(get_current_user)):
