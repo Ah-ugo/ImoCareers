@@ -6,12 +6,20 @@ from routers.auth import get_current_user
 import cloudinary.uploader
 from datetime import datetime
 from bson import ObjectId
+from database import get_job_collection
 
 router = APIRouter()
 
 
+# async def get_admin_user(current_user: User = Depends(get_current_user)):
+#     if current_user["role"] != "admin":
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Not authorized"
+#         )
+#     return current_user
 async def get_admin_user(current_user: User = Depends(get_current_user)):
-    if current_user["role"] != "admin":
+    if current_user.role != "admin":  # Changed from ["role"] to .role
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
@@ -24,11 +32,14 @@ async def create_job(
         job: JobCreate,
         current_user: User = Depends(get_admin_user)
 ):
+    jobs_collection = await get_job_collection()  # Get the collection
     job_dict = job.dict()
     job_dict["created_at"] = datetime.utcnow()
     job_dict["updated_at"] = datetime.utcnow()
+    job_dict["is_active"] = True  # Add default fields if needed
+    job_dict["applications_count"] = 0
 
-    result = await Job.insert_one(job_dict)
+    result = await jobs_collection.insert_one(job_dict)  # Use the collection
     return {"id": str(result.inserted_id)}
 
 
@@ -38,10 +49,11 @@ async def update_job(
         job: JobUpdate,
         current_user: User = Depends(get_admin_user)
 ):
+    jobs_collection = await get_job_collection()
     job_dict = job.dict(exclude_unset=True)
     job_dict["updated_at"] = datetime.utcnow()
 
-    result = await Job.update_one(
+    result = await jobs_collection.update_one(
         {"_id": ObjectId(job_id)},
         {"$set": job_dict}
     )
@@ -60,7 +72,8 @@ async def delete_job(
         job_id: str,
         current_user: User = Depends(get_admin_user)
 ):
-    result = await Job.delete_one({"_id": ObjectId(job_id)})
+    jobs_collection = await get_job_collection()
+    result = await jobs_collection.delete_one({"_id": ObjectId(job_id)})
 
     if result.deleted_count == 0:
         raise HTTPException(
